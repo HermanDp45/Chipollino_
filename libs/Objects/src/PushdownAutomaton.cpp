@@ -34,9 +34,10 @@ std::string Join(Range const& elements, const char* const delimiter) {
 	return os.str();
 }
 
-template <typename T> void hash_combine(std::size_t& seed, const T& v) {
-	seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-}
+// redefinition of 'hash_combine' in Tools.h
+// template <typename T> void hash_combine(std::size_t& seed, const T& v) {
+// 	seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+// }
 
 PDATransition::PDATransition(const int to, const Symbol& input, const Symbol& pop,
 							 const std::vector<Symbol>& push)
@@ -206,7 +207,7 @@ PushdownAutomaton PushdownAutomaton::regular_intersect(const Regex& re, iLogTemp
 	// Initialize states.
 	// recover_index maps (pda_index, dfa_index) to result_index.
 	std::vector<PDAState> result_states;
-	std::unordered_map<std::pair<int, int>, int, PairHasher> recover_index;
+	std::unordered_map<std::pair<int, int>, int, PairHasher<int,int>> recover_index; // fix template form
 	int i = 0;
 	for (const auto& pda_state : states) {
 		for (const auto& dfa_state : dfa.get_states()) {
@@ -532,7 +533,7 @@ PushdownAutomaton::_find_problematic_epsilon_transitions() const {
 			continue;
 		}
 
-		auto reachable = closure({state.index});
+		auto reachable = closure(state.index);
 		// Ищем нефинальные состояния, из которых есть помимо eps-переходов есть иные переходы.
 		for (const auto& [eps_trans, indices] : reachable) {
 			for (const auto& index : indices) {
