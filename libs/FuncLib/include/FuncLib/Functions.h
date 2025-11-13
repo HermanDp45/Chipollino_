@@ -29,6 +29,7 @@ inline static const std::vector<Function> functions = {
 	{"MFA", {ObjectType::BRefRegex}, ObjectType::MFA},
 	{"MFAexpt", {ObjectType::BRefRegex}, ObjectType::MFA},
 	{"Determinize", {ObjectType::NFA}, ObjectType::DFA},
+	{"Determinize", {ObjectType::PDA}, ObjectType::DPDA},
 	{"Determinize+", {ObjectType::NFA}, ObjectType::DFA},
 	{"RemEps", {ObjectType::NFA}, ObjectType::NFA},
 	{"RemEps", {ObjectType::MFA}, ObjectType::MFA},
@@ -43,6 +44,7 @@ inline static const std::vector<Function> functions = {
 	{"AddTrap", {ObjectType::MFA}, ObjectType::MFA},
 	{"Complement", {ObjectType::DFA}, ObjectType::DFA},
 	{"Complement", {ObjectType::MFA}, ObjectType::MFA},
+	{"Complement", {ObjectType::DPDA}, ObjectType::DPDA},
 	{"RemoveTrap", {ObjectType::DFA}, ObjectType::DFA},
 	{"DeAnnote", {ObjectType::Regex}, ObjectType::Regex},
 	{"DeAnnote", {ObjectType::NFA}, ObjectType::NFA},
@@ -65,6 +67,7 @@ inline static const std::vector<Function> functions = {
 	{"Minimal", {ObjectType::NFA}, ObjectType::OptionalBool},
 	{"Deterministic", {ObjectType::NFA}, ObjectType::Boolean},
 	{"Deterministic", {ObjectType::MFA}, ObjectType::Boolean},
+	{"Deterministic", {ObjectType::PDA}, ObjectType::Boolean},
 	{"Subset", {ObjectType::Regex, ObjectType::Regex}, ObjectType::Boolean},
 	{"Subset", {ObjectType::NFA, ObjectType::NFA}, ObjectType::Boolean},
 	{"Equiv", {ObjectType::Regex, ObjectType::Regex}, ObjectType::Boolean},
@@ -76,6 +79,7 @@ inline static const std::vector<Function> functions = {
 	{"Equal", {ObjectType::AmbiguityValue, ObjectType::AmbiguityValue}, ObjectType::Boolean},
 	{"Equal", {ObjectType::Boolean, ObjectType::Boolean}, ObjectType::Boolean},
 	{"Equal", {ObjectType::BRefRegex, ObjectType::BRefRegex}, ObjectType::Boolean},
+	{"Equal", {ObjectType::PDA, ObjectType::PDA}, ObjectType::Boolean},
 	{"OneUnambiguity", {ObjectType::Regex}, ObjectType::Boolean},
 	{"OneUnambiguity", {ObjectType::NFA}, ObjectType::Boolean},
 	{"SemDet", {ObjectType::NFA}, ObjectType::Boolean},
@@ -86,6 +90,10 @@ inline static const std::vector<Function> functions = {
 	{"MergeBisim", {ObjectType::MFA}, ObjectType::MFA},
 	{"Action", {ObjectType::MFA}, ObjectType::NFA},
 	{"Symbolic", {ObjectType::MFA}, ObjectType::NFA},
+	{"RegularIntersect", {ObjectType::PDA, ObjectType::Regex}, ObjectType::PDA},
+	{"getNFA", {ObjectType::String}, ObjectType::NFA},
+	{"getMFA", {ObjectType::String}, ObjectType::MFA},
+	{"getPDA", {ObjectType::String}, ObjectType::PDA}
 };
 
 // вспомогательная функция для Ани и ее курсача

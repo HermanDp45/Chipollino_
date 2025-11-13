@@ -22,3 +22,17 @@ test.txt
 
 *.raux
 *.rsl
+
+*.raux
+*.rsl
+
+ref5_231220.zip
+refal/Col_input.tex
+refal/L_input.tex
+refal/Mod_input.dot
+refal/R_input.tex
+refal/input.dot
+refal/input.tex
+run_with_refal.sh
+refal5_src/
+

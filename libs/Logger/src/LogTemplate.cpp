@@ -137,14 +137,19 @@ string LogTemplate::render() const {
 					string r = std::get<BackRefRegex>(param.value).to_txt();
 					s.insert(insert_place, replace_for_rendering(r));
 				} else if (std::holds_alternative<FiniteAutomaton>(param.value) ||
-						   std::holds_alternative<MemoryFiniteAutomaton>(param.value)) {
+						   std::holds_alternative<MemoryFiniteAutomaton>(param.value) ||
+						   std::holds_alternative<PushdownAutomaton>(param.value)) {
 					std::hash<string> hasher;
 					string c_graph;
 					string automaton;
-					if (std::holds_alternative<FiniteAutomaton>(param.value))
+					if (std::holds_alternative<FiniteAutomaton>(param.value)) {
 						automaton = std::get<FiniteAutomaton>(param.value).to_txt();
-					else
+					} else if (std::holds_alternative<MemoryFiniteAutomaton>(param.value)) {
 						automaton = std::get<MemoryFiniteAutomaton>(param.value).to_txt();
+					} else if (std::holds_alternative<PushdownAutomaton>(param.value)) {
+						automaton = std::get<PushdownAutomaton>(param.value).to_txt();
+					}
+					automaton = std::regex_replace(automaton, std::regex("\\^"), "\\textasciicircum ");
 					size_t hash = hasher(automaton);
 					if (cache_automatons.count(hash) != 0) {
 						c_graph = cache_automatons[hash];
