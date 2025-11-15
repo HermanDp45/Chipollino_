@@ -19,6 +19,13 @@ using std::unordered_set;
 using std::vector;
 
 template <typename Range, typename Value = typename Range::value_type>
+
+/**
+ * @brief Объединяет элементы диапазона в строку с разделителем.
+ * @param elements диапазон элементов для объединения.
+ * @param delimiter разделитель между элементами.
+ * @return строка с объединенными элементами.
+*/
 std::string Join(Range const& elements, const char* const delimiter) {
 	std::ostringstream os;
 	auto b = begin(elements), e = end(elements);
@@ -39,6 +46,13 @@ std::string Join(Range const& elements, const char* const delimiter) {
 // 	seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 // }
 
+/**
+ * @brief Конструктор перехода PDA.
+ * @param to индекс целевого состояния.
+ * @param input входной символ.
+ * @param pop символ, извлекаемый из стека.
+ * @param push вектор символов для помещения в стек.
+ */
 PDATransition::PDATransition(const int to, const Symbol& input, const Symbol& pop,
 							 const std::vector<Symbol>& push)
 	: to(to), input_symbol(input), push(push), pop(pop) {}
@@ -48,6 +62,11 @@ bool PDATransition::operator==(const PDATransition& other) const {
 		   pop == other.pop;
 }
 
+/**
+ * @brief Функтор для хэширования PDATransition.
+ * @param t переход для хэширования.
+ * @return хэш-значение.
+ */
 std::size_t PDATransition::Hasher::operator()(const PDATransition& t) const {
 	std::size_t hash = 0;
 	hash_combine(hash, t.to);
@@ -59,24 +78,60 @@ std::size_t PDATransition::Hasher::operator()(const PDATransition& t) const {
 	return hash;
 }
 
+/**
+ * @brief Конструктор состояния PDA.
+ * @param index индекс состояния.
+ * @param is_terminal является ли состояние терминальным.
+ */
 PDAState::PDAState(int index, bool is_terminal) : State(index, {}, is_terminal) {}
 
+/**
+ * @brief Конструктор состояния PDA с идентификатором.
+ * @param index индекс состояния.
+ * @param identifier идентификатор состояния.
+ * @param is_terminal является ли состояние терминальным.
+ */
 PDAState::PDAState(int index, string identifier, bool is_terminal)
 	: State(index, std::move(identifier), is_terminal) {}
 
+/**
+ * @brief Конструктор состояния PDA с переходами.
+ * @param index индекс состояния.
+ * @param identifier идентификатор состояния.
+ * @param is_terminal является ли состояние терминальным.
+ * @param transitions переходы состояния.
+ */
 PDAState::PDAState(int index, std::string identifier, bool is_terminal, Transitions transitions)
 	: State(index, std::move(identifier), is_terminal), transitions(std::move(transitions)) {}
 
+/**
+ * @brief Преобразует состояние в текстовый формат.
+ * @return пустая строка (пока не готово или еще не осознал).
+ */
 std::string PDAState::to_txt() const {
 	return {};
 }
 
+/**
+ * @brief Добавляет переход в состояние (без полной информации).
+ * @param to переход.
+ * @param input_symbol входной символ.
+ */
 void PDAState::set_transition(const PDATransition& to, const Symbol& input_symbol) {
 	transitions[input_symbol].insert(to);
 }
 
+/**
+ * @brief Конструктор PDA по умолчанию.
+ */
 PushdownAutomaton::PushdownAutomaton() : AbstractMachine() {}
 
+/**
+ * @brief Конструктор PDA с состояниями и алфавитом.
+ * @param initial_state начальное состояние.
+ * @param states вектор состояний.
+ * @param alphabet алфавит.
+ */
 PushdownAutomaton::PushdownAutomaton(int initial_state, std::vector<PDAState> states,
 									 Alphabet alphabet)
 	: AbstractMachine(initial_state, std::move(alphabet)), states(std::move(states)) {
@@ -87,9 +142,16 @@ PushdownAutomaton::PushdownAutomaton(int initial_state, std::vector<PDAState> st
 	}
 }
 
+/**
+ * @brief Конструктор PDA с состояниями и языком.
+ * @param initial_state начальное состояние.
+ * @param states вектор состояний.
+ * @param language язык.
+ */
 PushdownAutomaton::PushdownAutomaton(int initial_state, vector<PDAState> states,
 									 std::shared_ptr<Language> language)
 	: AbstractMachine(initial_state, std::move(language)), states(std::move(states)) {
+	// проходимся по состояниям и проверяем индексы
 	for (int i = 0; i < this->states.size(); i++) {
 		if (this->states[i].index != i)
 			throw std::logic_error(
@@ -97,6 +159,10 @@ PushdownAutomaton::PushdownAutomaton(int initial_state, vector<PDAState> states,
 	}
 }
 
+/**
+ * @brief Преобразует PDA в формат DOT для GraphViz.
+ * @return строка в формате DOT.
+ */
 std::string PushdownAutomaton::to_txt() const {
 	stringstream ss;
 	ss << "digraph {\n\trankdir = LR\n\tdummy [label = \"\", shape = none]\n\t";
@@ -121,14 +187,28 @@ std::string PushdownAutomaton::to_txt() const {
 	return ss.str();
 }
 
+/**
+ * @brief Возвращает вектор состояний PDA.
+ * @return Вектор состояний.
+ */
 std::vector<PDAState> PushdownAutomaton::get_states() const {
 	return states;
 }
 
+/**
+ * @brief Возвращает количество состояний PDA.
+ * @param log логгер.
+ * @return Количество состояний.
+ */
 size_t PushdownAutomaton::size(iLogTemplate* log) const {
 	return states.size();
 }
 
+/**
+ * @brief Удаляет недостижимые состояния из PDA.
+ * @param log логгер.
+ * @return Новый PDA без недостижимых состояний.
+ */
 PushdownAutomaton PushdownAutomaton::_remove_unreachable_states(iLogTemplate* log) {
 	if (states.size() == 1) {
 		return *this;
@@ -190,10 +270,20 @@ PushdownAutomaton PushdownAutomaton::_remove_unreachable_states(iLogTemplate* lo
 	return {new_initial_index, new_states, get_language()};
 }
 
+/**
+ * @brief Вычисляет пересечение PDA с регулярным выражением.
+ * @param re регулярное выражение.
+ * @param log логгер.
+ * @return новый PDA, представляющий пересечение.
+ */
 PushdownAutomaton PushdownAutomaton::regular_intersect(const Regex& re, iLogTemplate* log) {
+	// преобразуем регулярное выражение в недетерминированный конечный автомат (NFA)
+	// детерминизируем - DFA
+	// минимизируем число состояний (оптимизируем)
 	auto dfa = re.to_thompson(log).determinize(log).minimize(log);
 
 	// Flatten PDA transitions
+	// разворачиваем переходы PDA в список вида [(откуда, переходы)]
 	using PDA_from = int;
 	std::vector<std::pair<PDA_from, PDATransition>> pda_transitions_by_from;
 	for (const auto& state : states) {
@@ -209,6 +299,8 @@ PushdownAutomaton PushdownAutomaton::regular_intersect(const Regex& re, iLogTemp
 	std::vector<PDAState> result_states;
 	std::unordered_map<std::pair<int, int>, int, PairHasher<int,int>> recover_index; // fix template form
 	int i = 0;
+	// через комбинации формируем новые состояния вида (q_i,q_j)
+	// терминальность в случае одновременной терминальности q_i,q_j
 	for (const auto& pda_state : states) {
 		for (const auto& dfa_state : dfa.get_states()) {
 			std::ostringstream oss;
@@ -224,8 +316,9 @@ PushdownAutomaton PushdownAutomaton::regular_intersect(const Regex& re, iLogTemp
 	for (const auto& [pda_from, pda_trans] : pda_transitions_by_from) {
 		for (const auto& dfa_state : dfa.get_states()) {
 			// Process epsilon transitions separately
+			// если в PDA был eps-переход, то добавляем его с неизменным состоянием для DFA 
 			if (pda_trans.input_symbol.is_epsilon()) {
-				auto from_index = recover_index[{pda_from, dfa_state.index}];
+				auto from_index = recover_index[{pda_from, dfa_state.index}]; 
 				auto to_index = recover_index[{pda_trans.to, dfa_state.index}];
 				result_states[from_index].set_transition(
 					PDATransition(to_index, pda_trans.input_symbol, pda_trans.pop, pda_trans.push),
@@ -234,6 +327,7 @@ PushdownAutomaton PushdownAutomaton::regular_intersect(const Regex& re, iLogTemp
 			}
 
 			// Process regular transitions separately
+			// берем символ, ищем переходы через него в dfa, формируем новый объединенный переход
 			auto matching_transitions = dfa_state.transitions.find(pda_trans.input_symbol);
 			if (matching_transitions == dfa_state.transitions.end()) {
 				continue;
@@ -252,6 +346,7 @@ PushdownAutomaton PushdownAutomaton::regular_intersect(const Regex& re, iLogTemp
 	auto result_initial_state = recover_index[{initial_state, dfa.get_initial()}];
 
 	// Calculate resulting alphabet
+	// просто пересечение алфавитов
 	auto pda_alphabet = get_language()->get_alphabet();
 	auto dfa_alphabet = dfa.get_language()->get_alphabet();
 	Alphabet result_alphabet;
@@ -273,6 +368,11 @@ PushdownAutomaton PushdownAutomaton::regular_intersect(const Regex& re, iLogTemp
 	return result;
 }
 
+/**
+ * @brief Преобразует переходы состояния в плоский вектор.
+ * @param state состояние.
+ * @return вектор переходов.
+ */
 vector<PDATransition> _flatten_transitions(PDAState state) {
 	vector<PDATransition> result;
 
@@ -285,6 +385,13 @@ vector<PDATransition> _flatten_transitions(PDAState state) {
 	return result;
 }
 
+/**
+ * @brief Рекурсивная функция для проверки равенства PDA.
+ * @param pda1 первый PDA.
+ * @param pda2 второй PDA.
+ * @param chst состояние проверки.
+ * @return Пара: результат и обновленное состояние.
+ */
 pair<bool, EqualityCheckerState> PushdownAutomaton::_equality_dfs(
 	const PushdownAutomaton& pda1, const PushdownAutomaton& pda2, EqualityCheckerState chst) const {
 
@@ -303,6 +410,7 @@ pair<bool, EqualityCheckerState> PushdownAutomaton::_equality_dfs(
 		// Два состояния должны иметь переходы по равному количеству символов.
 		return {false, {}};
 	}
+	// мне кажется, что еще надо смотреть на сами символы, а не только их количество
 
 	auto transitions1 = _flatten_transitions(state1);
 	auto transitions2 = _flatten_transitions(state2);
@@ -370,6 +478,12 @@ pair<bool, EqualityCheckerState> PushdownAutomaton::_equality_dfs(
 	return {false, {}};
 }
 
+/**
+ * @brief Проверяет равенство двух PDA.
+ * @param pda1 первый PDA.
+ * @param pda2 второй PDA.
+ * @return Пара: результат и отображение стековых символов.
+ */
 pair<bool, unordered_map<Symbol, Symbol, Symbol::Hasher>> PushdownAutomaton::_equality_checker(PushdownAutomaton pda1, PushdownAutomaton pda2) {
 	// Автоматы должны как минимум иметь равное количество состояний,
 	// равное количество символов стэка и равные алфавиты.
@@ -391,6 +505,13 @@ pair<bool, unordered_map<Symbol, Symbol, Symbol::Hasher>> PushdownAutomaton::_eq
 	return {true, chst_new.stack_mapping};
 }
 
+/**
+ * @brief Проверяет равенство двух PDA.
+ * @param pda1 первый PDA.
+ * @param pda2 второй PDA.
+ * @param log логгер.
+ * @return true, если PDA равны.
+ */
 bool PushdownAutomaton::equal(PushdownAutomaton pda1, PushdownAutomaton pda2, iLogTemplate* log) {
 	auto [result, stack_mapping] = _equality_checker(pda1, pda2);
 
@@ -412,6 +533,11 @@ bool PushdownAutomaton::equal(PushdownAutomaton pda1, PushdownAutomaton pda2, iL
 	return result;
 }
 
+/**
+ * @brief Проверяет, является ли PDA детерминированным.
+ * @param log логгер.
+ * @return true, если PDA детерминирован.
+ */
 bool PushdownAutomaton::is_deterministic(iLogTemplate* log) const {
 	bool result = true;
 	std::unordered_set<int> nondeterministic_states;
@@ -421,6 +547,8 @@ bool PushdownAutomaton::is_deterministic(iLogTemplate* log) const {
 			stack_sym_to_sym;
 		for (const auto& [symb, symbol_transitions] : state.transitions) {
 			for (const auto& tr : symbol_transitions) {
+				// Если помимо эпсилон перехода будет иной переход с тем же символом стэка,
+				// то автомату не понятно, считывать следующий или нет - недетерминированность.
 				if (symb.is_epsilon() && !stack_sym_to_sym[tr.pop].empty()) {
 					// Переход по эпсилону с pop некоторого символа стэка.
 					// С этим символом стэка не должно быть иных переходов.
@@ -458,6 +586,10 @@ bool PushdownAutomaton::is_deterministic(iLogTemplate* log) const {
 	return result;
 }
 
+/**
+ * @brief Возвращает множество стековых символов PDA.
+ * @return Множество символов.
+ */
 std::unordered_set<Symbol, Symbol::Hasher> PushdownAutomaton::_get_stack_symbols() const {
 	std::unordered_set<Symbol, Symbol::Hasher> result;
 	for (const auto& state : states) {
@@ -472,6 +604,11 @@ std::unordered_set<Symbol, Symbol::Hasher> PushdownAutomaton::_get_stack_symbols
 	return result;
 }
 
+/**
+ * @brief DFS для поиска достижимых состояний по epsilon-переходам.
+ * @param index индекс состояния.
+ * @param reachable Множество достижимых состояний.
+ */
 void PushdownAutomaton::_dfs(int index, unordered_set<int>& reachable) const {
 	if (reachable.count(index)) {
 		return;
@@ -488,6 +625,11 @@ void PushdownAutomaton::_dfs(int index, unordered_set<int>& reachable) const {
 	}
 }
 
+/**
+ * @brief Вычисляет замыкание eps-замыкание для состояния.
+ * @param index индекс состояния.
+ * @return Отображение переходов на достижимые состояния.
+ */
 unordered_map<PDATransition, unordered_set<int>, PDATransition::Hasher> PushdownAutomaton::closure(
 	const int index) const {
 	unordered_map<PDATransition, unordered_set<int>, PDATransition::Hasher> result;
@@ -506,6 +648,10 @@ unordered_map<PDATransition, unordered_set<int>, PDATransition::Hasher> Pushdown
 	return result;
 }
 
+/**
+ * @brief Находит проблемные eps-переходы для дополнения.
+ * @return Отображение состояний на проблемные переходы.
+ */
 std::unordered_map<int, std::unordered_set<PDATransition, PDATransition::Hasher>>
 PushdownAutomaton::_find_problematic_epsilon_transitions() const {
 	std::unordered_map<int, std::unordered_set<PDATransition, PDATransition::Hasher>> result;
@@ -547,6 +693,11 @@ PushdownAutomaton::_find_problematic_epsilon_transitions() const {
 	return result;
 }
 
+/**
+ * @brief Находит все переходы, ведущие в заданное состояние.
+ * @param index индекс состояния.
+ * @return Вектор пар (откуда, переход).
+ */
 std::vector<std::pair<int, PDATransition>> PushdownAutomaton::_find_transitions_to(
 	int index) const {
 	std::vector<std::pair<int, PDATransition>> result;
@@ -564,9 +715,16 @@ std::vector<std::pair<int, PDATransition>> PushdownAutomaton::_find_transitions_
 	return result;
 }
 
+/**
+ * @brief Добавляет ловушку-состояние в PDA.
+ * @return Новый PDA с ловушкой.
+ */
 PushdownAutomaton PushdownAutomaton::_add_trap_state() {
+	// копируем автомат
 	PushdownAutomaton result(initial_state, states, language);
+	// получаем все символы, которые в переходах снимались со стека
 	auto stack_symbols = result._get_stack_symbols();
+	// инициализируем индекс ловушки (либо берем уже имеющейся)
 	int i_trap = static_cast<int>(result.size());
 	bool already_has_trap = false;
 	for (const auto& state : result.states) {
@@ -577,15 +735,19 @@ PushdownAutomaton PushdownAutomaton::_add_trap_state() {
 	}
 
 	bool need_create_trap = false;
+	// проходимся по каждому состоянию
 	for (auto& state : result.states) {
 		std::set<std::pair<Symbol, Symbol>> stack_sym_in_sym_transitions;
-
+		// проходим по всем символам и переходам по ним в состоянии
 		for (const auto& [symbol, symbol_transitions] : state.transitions) {
+			// проходим каждому переходу по символу
 			for (const auto& trans : symbol_transitions) {
+				// добавляем в общее множество элемент ("Что снимаем со стека", "по какому символу переходи")
 				stack_sym_in_sym_transitions.emplace(trans.pop, trans.input_symbol);
 			}
 		}
-
+		
+		// Получаем все символы алфавита языка
 		std::set<Symbol> symbols = result.get_language()->get_alphabet();
 
 		for (const auto& symb : symbols) {
@@ -601,11 +763,15 @@ PushdownAutomaton PushdownAutomaton::_add_trap_state() {
 		}
 	}
 
+	// Если не добавили не одного состояния или состояние ловушки уже было
+	// то заканчиваем 
 	if (!need_create_trap || already_has_trap) {
 		return result;
 	}
 
+	// иначе добавляем состояние ловушки
 	result.states.emplace_back(i_trap, "trap", false);
+	// добавляем замыкание ловушки на самом себе
 	for (const auto& symb : result.get_language()->get_alphabet()) {
 		if (symb.is_epsilon())
 			continue;
@@ -619,6 +785,11 @@ PushdownAutomaton PushdownAutomaton::_add_trap_state() {
 	return result;
 }
 
+/**
+ * @brief Вычисляет дополнение PDA.
+ * @param log логгер.
+ * @return Дополнение PDA.
+ */
 PushdownAutomaton PushdownAutomaton::complement(iLogTemplate* log) const {
 	// PDA here is deterministic.
 	if (!is_deterministic()) {
@@ -686,16 +857,26 @@ PushdownAutomaton PushdownAutomaton::complement(iLogTemplate* log) const {
 	return result;
 }
 
+/**
+ * @brief Получает регулярные переходы для состояния разбора.
+ * @param s входная строка.
+ * @param parsing_state текущее состояние разбора.
+ * @return Вектор регулярных переходов.
+ */
 std::vector<PDATransition> get_regular_transitions(const string& s,
 												   const ParsingState& parsing_state) {
 	std::vector<PDATransition> regular_transitions;
 	const auto& transitions = parsing_state.state->transitions;
-
+	
+	// получаем текщий символ
 	const Symbol symb(parsing_state.pos < s.size() ? s[parsing_state.pos] : char());
+	// если нет по этому символу перехода, то возвращаем пустой
 	if (transitions.find(symb) == transitions.end()) {
 		return regular_transitions;
 	}
 
+	// получаем все переходы по этому символу и берем только те,
+	// где символ стека перехода совпадает с вершиной стека
 	auto symbol_transitions = transitions.at(symb);
 	for (const auto& trans : symbol_transitions) {
 		if (!parsing_state.stack.empty() && parsing_state.stack.top() == trans.pop) {
@@ -706,6 +887,11 @@ std::vector<PDATransition> get_regular_transitions(const string& s,
 	return regular_transitions;
 }
 
+/**
+ * @brief Получает epsilon-переходы для состояния разбора.
+ * @param parsing_state текущее состояние разбора.
+ * @return Вектор epsilon-переходов.
+ */
 std::vector<PDATransition> get_epsilon_transitions(const ParsingState& parsing_state) {
 	std::vector<PDATransition> epsilon_transitions;
 	const auto& transitions = parsing_state.state->transitions;
@@ -724,6 +910,12 @@ std::vector<PDATransition> get_epsilon_transitions(const ParsingState& parsing_s
 	return epsilon_transitions;
 }
 
+/**
+ * @brief Выполняет действия со стеком для перехода.
+ * @param stack текущий стек.
+ * @param tr переход.
+ * @return Новый стек после действий.
+ */
 std::stack<Symbol> perform_stack_actions(std::stack<Symbol> stack, const PDATransition& tr) {
 	stack.pop();
 
@@ -735,6 +927,11 @@ std::stack<Symbol> perform_stack_actions(std::stack<Symbol> stack, const PDATran
 	return stack;
 }
 
+/**
+ * @brief Разбирает строку с помощью PDA.
+ * @param s входная строка.
+ * @return Пара: счетчик шагов и результат разбора.
+ */
 std::pair<int, bool> PushdownAutomaton::parse(const std::string& s) const {
 	int counter = 0, parsed_len = 0;
 	const PDAState* state = &states[initial_state];
