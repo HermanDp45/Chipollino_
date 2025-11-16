@@ -727,10 +727,41 @@ PushdownAutomaton PushdownAutomaton::_add_trap_state() {
 	// инициализируем индекс ловушки (либо берем уже имеющейся)
 	int i_trap = static_cast<int>(result.size());
 	bool already_has_trap = false;
+	
+	// Ловушка удовлетворяет следующей семантике: 
+	// 1) нефинальное состояние
+	// 2) все переходы ведут в само себя
+	// 3) переходы не меняют стек
 	for (const auto& state : result.states) {
-		if (state.identifier == "trap") {
+		// состояние-ловушка должно быть нефинальным
+		if (state.is_terminal) {
+			continue;
+		}
+		
+		// проверяем, является ли состояние ловушкой
+		bool is_trap = true;
+		for (const auto& [symbol, symbol_transitions] : state.transitions) {
+			for (const auto& trans : symbol_transitions) {
+				// все переходы должны вести в само состояние
+				if (trans.to != state.index) {
+					is_trap = false;
+					break;
+				}
+				// переход не должен менять стек: снимаем X, кладем обратно [X]
+				if (trans.push.size() != 1 || trans.push[0] != trans.pop) {
+					is_trap = false;
+					break;
+				}
+			}
+			if (!is_trap) {
+				break;
+			}
+		}
+		
+		if (is_trap && !state.transitions.empty()) {
 			already_has_trap = true;
 			i_trap = state.index;
+			break;
 		}
 	}
 
@@ -831,12 +862,12 @@ PushdownAutomaton PushdownAutomaton::complement(iLogTemplate* log) const {
 			// Добавляем состояние-ловушку проблемных переходов.
 			result.states.emplace_back(problems_trap_index, "eps-trap", false);
 			result.states[problems_trap_index].set_transition(
-				{final_state_index, Symbol::Epsilon, bad_symbol, std::vector({bad_symbol})},
+				{final_state_index, Symbol::Epsilon, bad_symbol, std::vector<Symbol>({bad_symbol})},
 				Symbol::Epsilon);
 			for (const auto& stack_symb : result._get_stack_symbols()) {
 				if (stack_symb != bad_symbol) {
 					result.states[problems_trap_index].set_transition(
-						{from_index, Symbol::Epsilon, stack_symb, std::vector({stack_symb})},
+						{from_index, Symbol::Epsilon, stack_symb, std::vector<Symbol>({stack_symb})},
 						Symbol::Epsilon);
 				}
 			}
