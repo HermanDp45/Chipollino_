@@ -933,28 +933,44 @@ std::stack<Symbol> perform_stack_actions(std::stack<Symbol> stack, const PDATran
  * @return Пара: счетчик шагов и результат разбора.
  */
 std::pair<int, bool> PushdownAutomaton::parse(const std::string& s) const {
+	// сounter - счетчик итераций цикла
+	// parsed_len - сколько элементов строки уже обработали
 	int counter = 0, parsed_len = 0;
+	// берем стартовое состояние
 	const PDAState* state = &states[initial_state];
+	
 	set<tuple<int, int, int>> visited_eps;
+	// стэк PDA
 	std::stack<Symbol> pda_stack;
 	pda_stack.emplace(Symbol::StackTop);
+	// Стек того, что необходимо еще обработать
+	// так как вариантов обхода много - обходим все таким образом
 	std::stack<ParsingState> parsing_stack;
 	parsing_stack.emplace(parsed_len, state, pda_stack);
 
 	while (!parsing_stack.empty()) {
+		// Если дошли до конца и при этом в финальном состоянии
+		// заканчиваем проход
 		if (state->is_terminal && parsed_len == s.size()) {
 			break;
 		}
-
+		
+		// достаем состояние разбора со стека
 		auto parsing_state = parsing_stack.top();
 		parsing_stack.pop();
 
+		// получаем для него состояни
 		state = parsing_state.state;
+		// уже обработанную длину
 		parsed_len = parsing_state.pos;
+		// текущий стек
 		pda_stack = parsing_state.stack;
+		// добавляем общую итерацию
 		counter++;
-
+		
+		// получаем все не eps переходы для текущего символа и состояния
 		auto transitions = get_regular_transitions(s, parsing_state);
+		// для каждого такого перехода добавляем в стек следующие варианты разборы
 		if (parsed_len + 1 <= s.size()) {
 			for (const auto& trans : transitions) {
 				parsing_stack.emplace(parsed_len + 1,
@@ -985,9 +1001,11 @@ std::pair<int, bool> PushdownAutomaton::parse(const std::string& s) const {
 		}
 	}
 
+	// если дошли ровно до конца и в финальном состоянии, то успех
 	if (s.size() == parsed_len && state->is_terminal) {
 		return {counter, true};
 	}
 
+	// или не успех
 	return {counter, false};
 }
