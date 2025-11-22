@@ -446,6 +446,9 @@ optional<GeneralObject> Interpreter::apply_function(const Function& function,
 	if (function.name == "Reverse" && function.input[0] == ObjectType::NFA) {
 		res = ObjectNFA(get<ObjectNFA>(arguments[0]).value.reverse(&log_template));
 	}
+	if (function.name == "Reverse" && function.input[0] == ObjectType::PDA) {
+		res = ObjectPDA(get_automaton_pda(predres).reverse(&log_template));
+	}
 	if (function.name == "Reverse" && function.input[0] == ObjectType::BRefRegex) {
 		res = ObjectBRefRegex(get<ObjectBRefRegex>(arguments[0]).value.reverse(&log_template));
 	}

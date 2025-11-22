@@ -100,6 +100,8 @@ class PushdownAutomaton : public AbstractMachine {
 	_find_problematic_epsilon_transitions() const;
 	[[nodiscard]] std::vector<std::pair<int, PDATransition>> _find_transitions_to(int index) const;
 	[[nodiscard]] std::unordered_set<Symbol, Symbol::Hasher> _get_stack_symbols() const;
+	[[nodiscard]] std::pair<std::vector<PDAState::Transitions>, std::vector<PDAState>> 
+		get_reversed_transitions_with_new_states(int start_temp_index = -1) const;
 
   public:
 	PushdownAutomaton();
@@ -119,6 +121,8 @@ class PushdownAutomaton : public AbstractMachine {
 	static bool equal(PushdownAutomaton pda1, PushdownAutomaton pda2, iLogTemplate* log);
 	// пересечение с регуляркой
 	PushdownAutomaton regular_intersect(const Regex& re, iLogTemplate* log);
+	// разворот автомата
+	PushdownAutomaton reverse(iLogTemplate* log = nullptr) const;
 	// проверяет, распознаёт ли автомат слово (использует BasicMatcher)
 	std::pair<int, bool> parse(const std::string&) const override;
 };

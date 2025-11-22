@@ -178,7 +178,7 @@ std::string PushdownAutomaton::to_txt() const {
 			for (const auto& transition : elem.second) {
 				ss << "\t" << state.index << " -> " << transition.to << " [label = \""
 				   << string(elem.first) << ", " << transition.pop << "/"
-				   << Join(transition.push, ",") << "\"]\n";
+				   << (transition.push.empty() ? "eps" : Join(transition.push, ",")) << "\"]\n";
 			}
 		}
 	}
@@ -959,6 +959,29 @@ std::stack<Symbol> perform_stack_actions(std::stack<Symbol> stack, const PDATran
 }
 
 /**
+ * @brief Вычисляет хеш содержимого стека.
+ * @param stack стек для хеширования (копия, не изменяем оригинал).
+ * @return хеш-значение.
+ */
+static size_t hash_stack(const std::stack<Symbol>& stack) {
+	size_t hash = 0;
+	// Копируем стек для обхода
+	std::stack<Symbol> temp_stack = stack;
+	std::vector<std::string> symbols_as_strings;
+	
+	while (!temp_stack.empty()) {
+		symbols_as_strings.push_back(string(temp_stack.top()));
+		temp_stack.pop();
+	}
+	
+	// Хешируем в обратном порядке для консистентности
+	for (const auto& sym_str : symbols_as_strings) {
+		hash_combine(hash, sym_str);
+	}
+	return hash;
+}
+
+/**
  * @brief Разбирает строку с помощью PDA.
  * @param s входная строка.
  * @return Пара: счетчик шагов и результат разбора.
@@ -970,7 +993,10 @@ std::pair<int, bool> PushdownAutomaton::parse(const std::string& s) const {
 	// берем стартовое состояние
 	const PDAState* state = &states[initial_state];
 	
-	set<tuple<int, int, int>> visited_eps;
+	// Мемоизация полных конфигураций (state_index, pos, stack_hash)
+	// чтобы избежать повторной обработки одинаковых состояний
+	set<tuple<int, int, size_t>> visited_configs;
+	
 	// стэк PDA
 	std::stack<Symbol> pda_stack;
 	pda_stack.emplace(Symbol::StackTop);
@@ -990,12 +1016,21 @@ std::pair<int, bool> PushdownAutomaton::parse(const std::string& s) const {
 		auto parsing_state = parsing_stack.top();
 		parsing_stack.pop();
 
-		// получаем для него состояни
+		// получаем для него состояние
 		state = parsing_state.state;
 		// уже обработанную длину
 		parsed_len = parsing_state.pos;
 		// текущий стек
 		pda_stack = parsing_state.stack;
+		
+		// Проверяем, не посещали ли мы уже эту конфигурацию
+		size_t stack_hash = hash_stack(pda_stack);
+		auto config = std::make_tuple(state->index, parsed_len, stack_hash);
+		if (visited_configs.count(config)) {
+			continue; // Уже обработали эту конфигурацию
+		}
+		visited_configs.insert(config);
+		
 		// добавляем общую итерацию
 		counter++;
 		
@@ -1010,25 +1045,10 @@ std::pair<int, bool> PushdownAutomaton::parse(const std::string& s) const {
 			}
 		}
 
-		// если произошёл откат по строке, то эпсилон-переходы из рассмотренных состояний больше не
-		// считаются повторными
-		if (!visited_eps.empty()) {
-			set<tuple<int, int, int>> temp_eps;
-			for (auto pos : visited_eps) {
-				if (std::get<0>(pos) < parsed_len)
-					temp_eps.insert(pos);
-			}
-			visited_eps = temp_eps;
-		}
-
-		// добавление тех эпсилон-переходов, по которым ещё не было разбора от этой позиции и этого
-		// состояния и этого стэкового символа
+		// добавление эпсилон-переходов
 		auto eps_transitions = get_epsilon_transitions(parsing_state);
 		for (const auto& trans : eps_transitions) {
-			if (!visited_eps.count({parsed_len, state->index, trans.to})) {
-				parsing_stack.emplace(parsed_len, &states[trans.to], perform_stack_actions(parsing_state.stack, trans));
-				visited_eps.insert({parsed_len, state->index, trans.to});
-			}
+			parsing_stack.emplace(parsed_len, &states[trans.to], perform_stack_actions(parsing_state.stack, trans));
 		}
 	}
 
@@ -1039,4 +1059,173 @@ std::pair<int, bool> PushdownAutomaton::parse(const std::string& s) const {
 
 	// или не успех
 	return {counter, false};
+}
+
+/**
+ * @brief Возвращает обратные переходы с новыми состояниями.
+ * @param start_temp_index начальный индекс для новых состояний.
+ * @return Пара: вектор обратных переходов и вектор новых состояний.
+ */
+std::pair<std::vector<PDAState::Transitions>, std::vector<PDAState>> 
+PushdownAutomaton::get_reversed_transitions_with_new_states(int start_temp_index) const {
+	// Результат будет содержать больше состояний, чем исходный автомат
+	vector<PDAState::Transitions> res(size());
+	vector<PDAState> new_temp_states; // новые промежуточные состояния
+	int next_temp_state_index = (start_temp_index == -1) ? size() : start_temp_index;
+
+	// проходимся по всему изначальному автомату
+	for (int i = 0; i < size(); ++i) {
+		// для каждого состояния рассматриваем переходы на каждый символ
+		for (const auto& [symbol, symbol_transitions] : states[i].transitions) {
+			for (const auto& tr : symbol_transitions) {
+				// Обратный переход: меняем направление и операции со стеком
+				
+				// Если мы на стек клали просто eps, то pop = epsilon, push = {исходный pop}
+				// без каких-либо дополнительных состояний
+				if (tr.push.empty()) {
+					PDATransition reversed_tr(i, tr.input_symbol, Symbol::Epsilon, {tr.pop});
+					if (static_cast<size_t>(tr.to) >= res.size()) res.resize(tr.to + 1);
+					res[tr.to][symbol].insert(reversed_tr);
+
+				// если же push содержит один символ, то просто меняем pop и push местами
+				} else if (tr.push.size() == 1) {
+					PDATransition reversed_tr(i, tr.input_symbol, tr.push[0], {tr.pop});
+					if (static_cast<size_t>(tr.to) >= res.size()) res.resize(tr.to + 1);
+					res[tr.to][symbol].insert(reversed_tr);
+				
+				// Если push содержит несколько символов [z0, A, B], то на стеке они будут B, A, z0 (сверху вниз)
+				// В reverse нужно снимать в обратном порядке: B, A, z0
+				// Поэтому итерируемся по push В ОБРАТНОМ ПОРЯДКЕ: push[last], push[last-1], ..., push[0]
+				// Создаём цепочку: tr.to --symbol, pop=push[last], push=ε--> temp0 --ε, pop=push[last-1], push=ε--> ... --ε, pop=push[0], push={tr.pop}--> i
+				} else {
+					// Индекс первого временного состояния
+					int first_temp_index = next_temp_state_index;
+					
+					// Создаём переход из tr.to в первое временное состояние (снимаем последний элемент push)
+					PDATransition first_tr(first_temp_index, tr.input_symbol, tr.push[tr.push.size()-1], {});
+					// Расширяем при необходимости вектор 
+					if (static_cast<size_t>(tr.to) >= res.size()) res.resize(tr.to + 1);
+					// Добавляем этот переход в результат
+					res[tr.to][symbol].insert(first_tr);
+					
+					// Создаём промежуточные состояния и epsilon-переходы (итерируемся в обратном порядке)
+					for (int j = tr.push.size() - 2; j >= 0; --j) {
+						int current_temp_index = next_temp_state_index++;
+						std::ostringstream oss;
+						oss << "tmp" << i << "s" << tr.to << "p" << (tr.push.size() - 1 - j);
+						
+						// Создаём новое промежуточное состояние
+						PDAState temp_state(current_temp_index, oss.str(), false);
+						
+						if (j > 0) {
+							// Промежуточный переход: pop следующий символ из push (в обратном порядке)
+							int next_temp = next_temp_state_index;
+							PDATransition eps_tr(next_temp, Symbol::Epsilon, tr.push[j], {});
+							temp_state.transitions[Symbol::Epsilon].insert(eps_tr);
+						} else {
+							// Последний переход: pop push[0], push = {исходный pop}, идём в i
+							// идем в i - потому что мы смотрели от лица i->to - чтобы правильно
+							// развернуть переходы все
+							PDATransition last_tr(i, Symbol::Epsilon, tr.push[j], {tr.pop});
+							temp_state.transitions[Symbol::Epsilon].insert(last_tr);
+						}
+						
+						// добавляем созданное временное состояние
+						new_temp_states.push_back(temp_state);
+					}
+				}
+			}
+		}
+	}
+
+	return {res, new_temp_states};
+}
+
+PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
+	// создаем новый PDA с теми же состояниями и алфавитом
+	PushdownAutomaton new_pda(size(), states, language->get_alphabet());
+	// считаем количество финальных состояний
+	int final_states_counter = count_if(new_pda.states.begin(),
+										new_pda.states.end(),
+										[](const PDAState& state) { return state.is_terminal; });
+
+	// Если финальных состояний > 1, то добавляем новое состояние RevS
+	if (final_states_counter > 1) {
+		new_pda.states.push_back({(int)new_pda.size(),
+								  "RevS",
+								  false,
+								  PDAState::Transitions()});
+	}
+
+	// Если финальных состояний > 0, то начинаем reversing
+	if (final_states_counter > 0) {
+		
+		// если > 1 финального состояния, значит было добавлено новое стартовое RevS
+		int final_states_flag = (final_states_counter > 1) ? 1 : 0;
+		int new_initial_idx = (final_states_counter > 1) ? (new_pda.size() - 1) : -1;
+
+		// не трогаем последнее (RevS), если мы его добавили
+		for (int i = 0; i < new_pda.size() - final_states_flag; ++i) {
+			if (new_pda.states[i].is_terminal) {
+				// ранее финальное теряет свое свойство
+				new_pda.states[i].is_terminal = false;
+				if (final_states_counter == 1) {
+					new_pda.initial_state = i;
+					new_initial_idx = i;
+				}
+			}
+		}
+		// начальное состояние становится финальным
+		new_pda.states[initial_state].is_terminal = true;
+		
+		// если же у нас было только 1 финальное, тогда делаем его начальным
+		if (final_states_counter > 1) {
+			new_pda.initial_state = new_initial_idx;
+		}
+
+		// Получаем обратные переходы и новые промежуточные состояния
+		int start_temp_index = new_pda.size();
+		auto [new_transition_matrix, temp_states] = get_reversed_transitions_with_new_states(start_temp_index);
+		
+		// Применяем обратные переходы к существующим состояниям
+		for (int i = 0; i < new_pda.size() - final_states_flag; ++i) {
+			new_pda.states[i].transitions = new_transition_matrix[i];
+		}
+		
+		// Добавляем новые промежуточные состояния
+		for (auto& temp_state : temp_states) {
+			new_pda.states.push_back(temp_state);
+		}
+
+		// Добавляем переходы из RevS (или единственного старого финального состояния) 
+		// для генерации любого содержимого стека (так как мы принимаем не обязательно по пустому стеку)
+		auto stack_symbols = _get_stack_symbols();
+		for (const auto& sym : stack_symbols) {
+			// RevS -> RevS, read eps, pop eps, push sym
+			PDATransition loop_tr(new_initial_idx, Symbol::Epsilon, Symbol::Epsilon, {sym});
+			new_pda.states[new_initial_idx].transitions[Symbol::Epsilon].insert(loop_tr);
+		}
+
+		// Если мы создали RevS, то соединяем его со старыми финальными состояниями
+		if (final_states_counter > 1) {
+			for (int i = 0; i < size(); ++i) {
+				if (states[i].is_terminal) {
+					// RevS -> old final (eps, eps -> eps)
+					PDATransition eps_tr(i, Symbol::Epsilon, Symbol::Epsilon, {Symbol::Epsilon});
+					new_pda.states[new_initial_idx].transitions[Symbol::Epsilon].insert(eps_tr);
+				}
+			}
+		}
+	} else {
+		new_pda.initial_state = initial_state;
+	}
+
+	// Удаляем недостижимые состояния
+	new_pda = new_pda._remove_unreachable_states(log);
+    std::cerr << "Reversed PDA:\n" << new_pda.to_txt() << std::endl;
+	if (log) {
+		log->set_parameter("oldautomaton", *this);
+		log->set_parameter("result", new_pda);
+	}
+	return new_pda;
 }
