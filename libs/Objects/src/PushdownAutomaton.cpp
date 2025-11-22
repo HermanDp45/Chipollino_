@@ -910,7 +910,7 @@ std::vector<PDATransition> get_regular_transitions(const string& s,
 	// где символ стека перехода совпадает с вершиной стека
 	auto symbol_transitions = transitions.at(symb);
 	for (const auto& trans : symbol_transitions) {
-		if (!parsing_state.stack.empty() && parsing_state.stack.top() == trans.pop) {
+		if (trans.pop.is_epsilon() || (!parsing_state.stack.empty() && parsing_state.stack.top() == trans.pop)) {
 			regular_transitions.emplace_back(trans);
 		}
 	}
@@ -933,7 +933,7 @@ std::vector<PDATransition> get_epsilon_transitions(const ParsingState& parsing_s
 
 	for (const auto& trans : transitions.at(Symbol::Epsilon)) {
 		// переход по epsilon -> не потребляем символ
-		if (!parsing_state.stack.empty() && parsing_state.stack.top() == trans.pop) {
+		if (trans.pop.is_epsilon() || (!parsing_state.stack.empty() && parsing_state.stack.top() == trans.pop)) {
 			epsilon_transitions.emplace_back(trans);
 		}
 	}
@@ -948,7 +948,9 @@ std::vector<PDATransition> get_epsilon_transitions(const ParsingState& parsing_s
  * @return Новый стек после действий.
  */
 std::stack<Symbol> perform_stack_actions(std::stack<Symbol> stack, const PDATransition& tr) {
-	stack.pop();
+	if (!tr.pop.is_epsilon()) {
+		stack.pop();
+	}
 
 	for (const auto& push_sym : tr.push) {
 		if (!push_sym.is_epsilon()) {
@@ -1199,12 +1201,12 @@ PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
 
 		// Добавляем переходы из RevS (или единственного старого финального состояния) 
 		// для генерации любого содержимого стека (так как мы принимаем не обязательно по пустому стеку)
-		auto stack_symbols = _get_stack_symbols();
-		for (const auto& sym : stack_symbols) {
-			// RevS -> RevS, read eps, pop eps, push sym
-			PDATransition loop_tr(new_initial_idx, Symbol::Epsilon, Symbol::Epsilon, {sym});
-			new_pda.states[new_initial_idx].transitions[Symbol::Epsilon].insert(loop_tr);
-		}
+		// auto stack_symbols = _get_stack_symbols();
+		// for (const auto& sym : stack_symbols) {
+		// 	// RevS -> RevS, read eps, pop eps, push sym
+		// 	PDATransition loop_tr(new_initial_idx, Symbol::Epsilon, Symbol::Epsilon, {sym});
+		// 	new_pda.states[new_initial_idx].transitions[Symbol::Epsilon].insert(loop_tr);
+		// }
 
 		// Если мы создали RevS, то соединяем его со старыми финальными состояниями
 		if (final_states_counter > 1) {
