@@ -1,0 +1,8 @@
+X = getPDA "testdata/test_pda_no_trap.txt"
+IsDet = Deterministic X
+D = Determinize X
+C = Complement D !!
+Test (X) {a} 1
+Test (X) {aa} 0
+Test (C) {a} 0
+Test (C) {aa} 1

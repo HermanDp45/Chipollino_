@@ -1,0 +1,10 @@
+X = getPDA "testdata/test_reverse_multifinal.txt"
+R = Reverse X !!
+Test (X) {aabb} 1
+Test (X) {aaabbb} 1
+Test (X) {aacc} 1
+Test (X) {aaaccc} 1
+Test (R) {bbaa} 1
+Test (R) {bbbaaaa} 1
+Test (R) {ccaa} 1
+Test (R) {cccaaa} 1

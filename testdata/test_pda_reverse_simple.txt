@@ -1,0 +1,9 @@
+X = getPDA "testdata/test_pda_reverse_content.txt"
+R = Reverse X !!
+Test (X) {a} 1
+Test (X) {b} 1
+Test (X) {ab} 0
+Test (R) {a} 1
+Test (R) {b} 1
+Test (R) {ab} 0
+Test (R) {ba} 1
