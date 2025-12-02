@@ -81,6 +81,7 @@ inline static const std::vector<Function> functions = {
 	{"Equal", {ObjectType::Boolean, ObjectType::Boolean}, ObjectType::Boolean},
 	{"Equal", {ObjectType::BRefRegex, ObjectType::BRefRegex}, ObjectType::Boolean},
 	{"Equal", {ObjectType::PDA, ObjectType::PDA}, ObjectType::Boolean},
+	{"Bisimilar", {ObjectType::PDA, ObjectType::PDA}, ObjectType::OptionalBool},
 	{"OneUnambiguity", {ObjectType::Regex}, ObjectType::Boolean},
 	{"OneUnambiguity", {ObjectType::NFA}, ObjectType::Boolean},
 	{"SemDet", {ObjectType::NFA}, ObjectType::Boolean},

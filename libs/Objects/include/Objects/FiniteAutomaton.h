@@ -49,6 +49,8 @@ class FAState : public State {
 
 // TODO если меняешь структуру, поменяй FA_model в TransformationMonoid.h
 class FiniteAutomaton : public AbstractMachine {
+	friend class PushdownAutomaton;
+	
   public:
 	enum AmbiguityValue {
 		exponentially_ambiguous,

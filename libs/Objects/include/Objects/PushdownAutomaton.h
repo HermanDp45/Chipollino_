@@ -96,6 +96,12 @@ class PushdownAutomaton : public AbstractMachine {
 		const PushdownAutomaton& pda1, const PushdownAutomaton& pda2,
 		EqualityCheckerState chst) const;
 	static std::pair<bool, std::unordered_map<Symbol, Symbol, Symbol::Hasher>> _equality_checker(PushdownAutomaton pda1, PushdownAutomaton pda2);
+	[[nodiscard]] std::pair<bool, EqualityCheckerState> _bisimilarity_dfs(
+		const PushdownAutomaton& pda1, const PushdownAutomaton& pda2,
+		EqualityCheckerState chst) const;
+	static FiniteAutomaton _to_action_nfa(const PushdownAutomaton& pda);
+	static FiniteAutomaton _to_symbolic_nfa(const PushdownAutomaton& pda);
+	static std::optional<bool> _bisimilarity_checker(const PushdownAutomaton& pda1, const PushdownAutomaton& pda2);
 	[[nodiscard]] std::unordered_map<int, std::unordered_set<PDATransition, PDATransition::Hasher>>
 	_find_problematic_epsilon_transitions() const;
 	[[nodiscard]] std::vector<std::pair<int, PDATransition>> _find_transitions_to(int index) const;
@@ -119,6 +125,7 @@ class PushdownAutomaton : public AbstractMachine {
 	// меняет язык
 	PushdownAutomaton complement(iLogTemplate* log = nullptr) const;
 	static bool equal(PushdownAutomaton pda1, PushdownAutomaton pda2, iLogTemplate* log);
+	static std::optional<bool> bisimilar(const PushdownAutomaton& pda1, const PushdownAutomaton& pda2, iLogTemplate* log = nullptr);
 	// пересечение с регуляркой
 	PushdownAutomaton regular_intersect(const Regex& re, iLogTemplate* log);
 	// разворот автомата

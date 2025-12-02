@@ -1,0 +1,14 @@
+PDA1 = getPDA "testdata/test_pda_bisim_false_content_1.txt"
+PDA2 = getPDA "testdata/test_pda_bisim_false_content_2.txt"
+
+Result1 = Bisimilar (PDA1) (PDA2) !!
+
+PDA3 = getPDA "testdata/test_pda_bisim_true_content_1.txt"
+PDA4 = getPDA "testdata/test_pda_bisim_true_content_2.txt"
+
+Result2 = Bisimilar (PDA3) (PDA4) !!
+
+PDA5 = getPDA "testdata/test_pda_bisim_nullopt_content_1.txt"
+PDA6 = getPDA "testdata/test_pda_bisim_nullopt_content_2.txt"
+
+Result3 = Bisimilar (PDA5) (PDA6) !!

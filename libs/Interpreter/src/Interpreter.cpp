@@ -291,6 +291,11 @@ optional<GeneralObject> Interpreter::apply_function(const Function& function,
 		return ObjectBoolean(PushdownAutomaton::equal(
 			get_automaton_pda(arguments[0]), get_automaton_pda(arguments[1]), &log_template));
 	}
+	if (function.name == "Bisimilar" && function.input[0] == ObjectType::PDA) {
+		auto result = PushdownAutomaton::bisimilar(
+			get_automaton_pda(arguments[0]), get_automaton_pda(arguments[1]), &log_template);
+		return ObjectOptionalBool(result);
+	}
 	if (function.name == "Equal" && function.input[0] == ObjectType::Int) {
 		int value1 = get<ObjectInt>(arguments[0]).value;
 		int value2 = get<ObjectInt>(arguments[1]).value;
