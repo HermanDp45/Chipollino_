@@ -3,8 +3,10 @@ PDA {
 1 initial_state;
 2 ...
 1 1 a z0/z0,Y;
+1 1 a C/C,C;
 1 1 a Y/Y,Y;
 1 2 b Y/eps;
 2 2 b Y/eps;
 2 0 eps z0/z0
 }
+

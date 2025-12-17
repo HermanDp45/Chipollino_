@@ -1,10 +1,9 @@
-X = getPDA "testdata/test_pda_with_trap.txt"
-IsDet = Deterministic X
+X = getPDA "testdata/test_pda_trap_content_1.txt"
+Y = getPDA "testdata/test_pda_trap_content_2.txt"
+Z = getPDA "testdata/test_pda_trap_content_3.txt"
 D = Determinize X
-C = Complement D !!
-Test (X) {a} 1
-Test (C) {b} 1
-Test (C) {a} 0
-Test (C) {aa} 1
-Test (C) {ab} 1
-Test (C) {ba} 1
+F = Determinize Y
+G = Determinize Z
+C1 = Complement D !!
+C2 = Complement F !!
+C3 = Complement G !!

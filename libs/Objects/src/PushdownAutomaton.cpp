@@ -4,11 +4,14 @@
 #include <Objects/BackRefRegex.h>
 #include <Objects/PushdownAutomaton.h>
 #include <Objects/Symbol.h>
+#include <optional>
+#include <queue>
 #include <sstream>
 #include <string>
 
 using std::optional;
 using std::pair;
+using std::queue;
 using std::set;
 using std::stack;
 using std::string;
@@ -527,6 +530,314 @@ bool PushdownAutomaton::equal(PushdownAutomaton pda1, PushdownAutomaton pda2, iL
 				oss << first << " -> " << second << "; ";
 			}
 			log->set_parameter("stack", oss.str());
+		}
+	}
+
+	return result;
+}
+
+
+/**
+ * @brief Получает все уникальные символы стека из PDA.
+ * @param pda автомат для анализа.
+ * @return Множество всех символов стека (pop и push из всех переходов).
+ */
+static std::set<std::string> _get_all_stack_symbols(const PushdownAutomaton& pda) {
+	std::set<std::string> stack_symbols;
+	for (const auto& state : pda.get_states()) {
+		for (const auto& [input_symbol, symbol_transitions] : state.transitions) {
+			for (const auto& tr : symbol_transitions) {
+				stack_symbols.insert(std::string(tr.pop));
+				for (const auto& push_sym : tr.push) {
+					stack_symbols.insert(std::string(push_sym));
+				}
+			}
+		}
+	}
+	return stack_symbols;
+}
+
+/**
+ * @brief Преобразует PDA в NFA (убирая действия со стеком, оставляя только структуру переходов).
+ * Используется для Action Bisimulation.
+ * @return NFA, соответствующий структуре переходов PDA.
+ */
+FiniteAutomaton PushdownAutomaton::_to_action_nfa(const PushdownAutomaton& pda) {
+	// Создаем состояния NFA, соответствующие состояниям PDA
+	vector<FAState> nfa_states;
+	for (const auto& pda_state : pda.get_states()) {
+		FAState fa_state(pda_state.index, pda_state.identifier, pda_state.is_terminal);
+		nfa_states.push_back(fa_state);
+	}
+	
+	// Добавляем переходы, игнорируя действия со стеком
+	auto pda_states = pda.get_states();
+	for (int i = 0; i < pda_states.size(); ++i) {
+		for (const auto& [input_symbol, symbol_transitions] : pda_states[i].transitions) {
+			for (const auto& tr : symbol_transitions) {
+				// Добавляем переход по входному символу, игнорируя pop/push
+				nfa_states[i].add_transition(tr.to, input_symbol);
+			}
+		}
+	}
+	
+	return FiniteAutomaton(pda.initial_state, nfa_states, pda.language->get_alphabet());
+}
+
+/**
+ * @brief Преобразует PDA в символьный NFA для Symbolic Bisimulation.
+ * Переход S --t, X1/X2--> S' становится S --t--> S_mid --X1#X2--> S'.
+ * @return NFA с символьными переходами.
+ */
+FiniteAutomaton PushdownAutomaton::_to_symbolic_nfa(const PushdownAutomaton& pda) {
+	vector<FAState> nfa_states;
+	auto pda_states = pda.get_states();
+	int next_state_id = pda_states.size();
+	
+	// Создаем состояния для исходных состояний PDA
+	for (const auto& pda_state : pda_states) {
+		FAState fa_state(pda_state.index, pda_state.identifier, pda_state.is_terminal);
+		nfa_states.push_back(fa_state);
+	}
+	
+	// Собираем все символы стека и создаем нормализованное отображение
+	std::set<std::string> stack_symbols_set = _get_all_stack_symbols(pda);
+	
+	// Создаем отображение: символ стека -> нормализованное имя (S0, S1, S2, ...)
+	std::unordered_map<std::string, std::string> normalize_map;
+	int counter = 0;
+	for (const auto& sym : stack_symbols_set) {
+		normalize_map[sym] = "S" + std::to_string(counter++);
+	}
+	
+	// Собираем информацию о промежуточных состояниях и переходах
+	struct MidTransition {
+		int from_state;
+		int mid_state_id;
+		Symbol input_symbol;
+		int to_state;
+		Symbol symbolic_action;
+	};
+	vector<MidTransition> mid_transitions;
+	
+	// Для каждого перехода создаем промежуточное состояние
+	for (int i = 0; i < pda_states.size(); ++i) {
+		for (const auto& [input_symbol, symbol_transitions] : pda_states[i].transitions) {
+			for (const auto& tr : symbol_transitions) {
+				int mid_state_id = next_state_id++;
+				
+				// Создаем нормализованное символьное представление pop#push
+				std::string pop_str = normalize_map[std::string(tr.pop)];
+				std::string push_str;
+				for (size_t j = 0; j < tr.push.size(); ++j) {
+					push_str += normalize_map[std::string(tr.push[j])];
+					if (j < tr.push.size() - 1) push_str += ",";
+				}
+				Symbol symbolic_action(pop_str + "#" + push_str);
+				
+				mid_transitions.push_back({i, mid_state_id, input_symbol, tr.to, symbolic_action});
+			}
+		}
+	}
+	
+	// Создаем расширенный алфавит (исходные символы + символьные действия)
+	Alphabet extended_alphabet = pda.language->get_alphabet();
+	for (const auto& mt : mid_transitions) {
+		extended_alphabet.insert(mt.symbolic_action);
+	}
+	
+	// Добавляем переходы к исходным состояниям
+	for (const auto& mt : mid_transitions) {
+		nfa_states[mt.from_state].add_transition(mt.mid_state_id, mt.input_symbol);
+	}
+	
+	// Создаем промежуточные состояния
+	for (const auto& mt : mid_transitions) {
+		FAState mid_state(mt.mid_state_id, 
+						  "mid_" + std::to_string(mt.from_state) + "_" + std::to_string(mt.to_state), 
+						  false);
+		mid_state.add_transition(mt.to_state, mt.symbolic_action);
+		nfa_states.push_back(mid_state);
+	}
+	
+	return FiniteAutomaton(pda.initial_state, nfa_states, extended_alphabet);
+}
+
+
+
+/**
+ * @brief Двухэтапная проверка бисимуляции двух PDA с гибридным подходом.
+ * 
+ * Этап 1: Action Bisimulation - проверяем структуру переходов без учета стека.
+ * 
+ * Этап 2: Symbolic Bisimulation с адаптивной стратегией:
+ *   а) Сначала пробуем простую независимую нормализацию (быстро, O(n log n))
+ *   б) Если не сработала и |Γ| ≤ 7 - перебираем все перестановки (медленно, O(|Γ|!))
+ *   в) Если |Γ| > 7 - возвращаем консервативный ответ (nullopt)
+ * 
+ * Обоснование гибридного подхода:
+ * - Простая нормализация работает для большинства практических случаев
+ *   (когда символы стека именуются согласованно)
+ * - Полный перебор гарантирует корректность для небольших алфавитов
+ * - Ограничение |Γ| ≤ 7 предотвращает экспоненциальный взрыв (7! = 5040)
+ * 
+ * Ограничения:
+ * - Может дать nullopt для бисимилярных PDA с большим алфавитом стека (>7)
+ *   и несогласованными именами символов
+ * - Не оптимален при наличии недетерминизма (множество переходов по одному символу)
+ * 
+ * 
+ * @param pda1 первый PDA.
+ * @param pda2 второй PDA.
+ * @return optional<bool>:
+ *   - false: точно не бисимилярны (Action Bisimulation не прошла)
+ *   - nullopt: неизвестно (структура совпадает, но не нашли перестановку стека)
+ *   - true: точно бисимилярны (нашли подходящую перестановку)
+ */
+std::optional<bool> PushdownAutomaton::_bisimilarity_checker(
+	const PushdownAutomaton& pda1, const PushdownAutomaton& pda2) {
+	
+	// Базовые проверки
+	if (pda1.get_language()->get_alphabet() != pda2.get_language()->get_alphabet()) {
+		return false;
+	}
+	
+	// ===== ЭТАП 1: ACTION BISIMULATION =====
+	// Преобразуем PDA в NFA (убираем действия со стеком)
+	FiniteAutomaton action_nfa1 = _to_action_nfa(pda1);
+	FiniteAutomaton action_nfa2 = _to_action_nfa(pda2);
+	
+	// Проверяем бисимиляцию NFA
+	auto [action_bisim_result, meta_info, classes] = 
+		FiniteAutomaton::bisimilarity_checker(action_nfa1, action_nfa2);
+	
+	if (!action_bisim_result) {
+		// Этап 1 не прошел - автоматы точно не бисимилярны
+		return false;
+	}
+	
+	// ===== ЭТАП 2: SYMBOLIC BISIMULATION =====
+	// Стратегия: пробуем простую нормализацию, если не работает - перебираем перестановки
+	
+	// Сначала пробуем простой подход с независимой нормализацией
+	FiniteAutomaton symbolic_nfa1 = _to_symbolic_nfa(pda1);
+	FiniteAutomaton symbolic_nfa2 = _to_symbolic_nfa(pda2);
+	
+	auto [simple_result, _, __] = FiniteAutomaton::bisimilarity_checker(symbolic_nfa1, symbolic_nfa2);
+	if (simple_result) {
+		std::cout << "Simple normalization succeeded\n";
+		return true; // Повезло, простая нормализация сработала!
+	}
+	
+	// Простая нормализация не сработала. 
+	// Для небольших алфавитов стека пробуем все перестановки.
+	
+	// Собираем символы стека обоих автоматов
+	std::set<std::string> stack_symbols1 = _get_all_stack_symbols(pda1);
+	std::set<std::string> stack_symbols2 = _get_all_stack_symbols(pda2);
+	
+	if (stack_symbols1.size() != stack_symbols2.size()) {
+		return std::nullopt;
+	}
+	
+	// Если алфавит стека слишком большой, не перебираем
+	// Ограничение: 7! = 5040 перестановок - разумный предел для полного перебора
+	if (stack_symbols1.size() > 7) {
+		return std::nullopt; // Консервативный ответ
+	}
+	
+	// перебор перестановок
+	// Пример: если в pda1 стек {A,B}, а в pda2 стек {X,Y},
+	// проверяем 2! = 2 варианта:
+	//   1) A→X, B→Y (прямое соответствие)
+	//   2) A→Y, B→X (инверсное соответствие)
+	
+	std::vector<std::string> syms1(stack_symbols1.begin(), stack_symbols1.end());
+	std::vector<std::string> syms2(stack_symbols2.begin(), stack_symbols2.end());
+	std::sort(syms2.begin(), syms2.end());
+	
+	// std::next_permutation генерирует следующую лексикографическую перестановку
+	// Цикл do-while гарантирует проверку всех |Γ|! перестановок
+	do {
+		// Создание отображение перестановки
+		// permutation[sym_from_pda1] = corresponding_sym_from_pda2
+		// Например: если syms1 = [A, B], syms2 = [Y, X] (после перестановки),
+		// то permutation = {A->Y, B->X}
+		std::unordered_map<std::string, std::string> permutation;
+		for (size_t i = 0; i < syms1.size(); ++i) {
+			permutation[syms1[i]] = syms2[i];
+		}
+		
+		// Применение перестановки к pda2
+		// Создаем новый PDA, где каждый символ стека переименован согласно permutation
+		// Важно: переименовываем ВСЕ вхождения символа (и в pop, и во всех push)
+		std::vector<PDAState> permuted_states;
+		for (const auto& state : pda2.states) {
+			PDAState new_state(state.index, state.identifier, state.is_terminal);
+			
+			// Проходим по всем переходам и переименовываем стековые символы
+			for (const auto& [input_symbol, symbol_transitions] : state.transitions) {
+				for (const auto& tr : symbol_transitions) {
+					// Переименовываем pop: старый_символ -> новый_символ
+					Symbol new_pop(permutation[std::string(tr.pop)]);
+					
+					// Переименовываем каждый символ в push
+					std::vector<Symbol> new_push;
+					for (const auto& push_sym : tr.push) {
+						new_push.push_back(Symbol(permutation[std::string(push_sym)]));
+					}
+					
+					// Создаем новый переход с переименованными символами
+					PDATransition new_transition(tr.to, input_symbol, new_pop, new_push);
+					new_state.set_transition(new_transition, input_symbol);
+				}
+			}
+			permuted_states.push_back(new_state);
+		}
+		PushdownAutomaton pda2_permuted(pda2.initial_state, permuted_states, pda2.language->get_alphabet());
+		
+		// Проверяем symbolic bisimulation с этой перестановкой
+		// Теперь символы стека согласованы, простая нормализация должна дать одинаковые имена
+		FiniteAutomaton symbolic_nfa1_perm = _to_symbolic_nfa(pda1);
+		FiniteAutomaton symbolic_nfa2_perm = _to_symbolic_nfa(pda2_permuted);
+		
+		auto [perm_result, ___, ____] = 
+			FiniteAutomaton::bisimilarity_checker(symbolic_nfa1_perm, symbolic_nfa2_perm);
+		
+		if (perm_result) {
+			return true;
+		}
+		
+		// Эта перестановка не сработала, переходим к следующей
+	} while (std::next_permutation(syms2.begin(), syms2.end()));
+	
+	// Проверили все |Γ|! перестановок - ни одна не дала бисимуляции.
+	// Это означает, что либо:
+	//   1) Автоматы действительно не бисимулярны
+	//   2) Есть более сложная зависимость между символами
+	// Возвращаем nullopt как консервативный ответч
+	return std::nullopt;
+}
+
+/**
+ * @brief Проверяет бисимуляцию двух PDA (приближённый алгоритм).
+ * @param pda1 первый PDA.
+ * @param pda2 второй PDA.
+ * @param log логгер.
+ * @return optional<bool>: true если бисимулярны, false если точно нет, nullopt если неизвестно.
+ */
+std::optional<bool> PushdownAutomaton::bisimilar(
+	const PushdownAutomaton& pda1, const PushdownAutomaton& pda2, iLogTemplate* log) {
+	
+	auto result = _bisimilarity_checker(pda1, pda2);
+
+	if (log) {
+		log->set_parameter("pda1", pda1);
+		log->set_parameter("pda2", pda2);
+		if (result.has_value()) {
+			log->set_parameter("result", result.value() ? "True" : "False");
+		} else {
+			log->set_parameter("result", "Unknown");
 		}
 	}
 
@@ -1144,90 +1455,233 @@ PushdownAutomaton::get_reversed_transitions_with_new_states(int start_temp_index
 }
 
 PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
-	// создаем новый PDA с теми же состояниями и алфавитом
-	PushdownAutomaton new_pda(size(), states, language->get_alphabet());
-	// считаем количество финальных состояний
-	int final_states_counter = count_if(new_pda.states.begin(),
-										new_pda.states.end(),
-										[](const PDAState& state) { return state.is_terminal; });
-
-	// Если финальных состояний > 1, то добавляем новое состояние RevS
+	// Шаг 1: Анализируем финальные состояния и определяем, нужны ли им состояния-очистители стека
+	
+	struct FinalStateInfo {
+		int state_index;
+		bool needs_stack_cleanup; // true если нужно добавить состояние для очистки стека
+		std::unordered_set<Symbol, Symbol::Hasher> symbols_to_clean; // какие символы нужно очистить
+	};
+	
+	std::vector<FinalStateInfo> final_states_info;
+	auto stack_symbols = _get_stack_symbols();
+	
+	// Анализируем каждое финальное состояние
+	for (int i = 0; i < states.size(); ++i) {
+		if (!states[i].is_terminal) continue;
+		
+		FinalStateInfo info{i, false, {}};
+		
+		// Проверка 1: Есть ли переходы В это финальное состояние, которые оставляют только z0 на стеке?
+		bool has_empty_stack_entry = false;
+		
+		// Ищем все переходы, ведущие в это состояние
+		for (int from_state = 0; from_state < states.size(); ++from_state) {
+			for (const auto& [symbol, transitions] : states[from_state].transitions) {
+				for (const auto& tr : transitions) {
+					if (tr.to == i) {
+						// Переход найден. Проверяем, что он делает со стеком
+						// Стек пустой (только z0), если:
+						// 1) pop = z0 и push = z0 (сохраняем пустой стек)
+						// 2) pop = z0 и push пустой/eps (убираем z0 - некорректно, но тоже пустой)
+						bool pops_stack_top = (tr.pop == Symbol::StackTop);
+						bool pushes_only_stack_top = false;
+						
+						if (tr.push.empty()) {
+							pushes_only_stack_top = true; // не push-им ничего
+						} else if (tr.push.size() == 1) {
+							// push только z0 или только eps
+							pushes_only_stack_top = (tr.push[0] == Symbol::StackTop || 
+													 tr.push[0] == Symbol::Epsilon);
+						}
+						
+						if (pops_stack_top && pushes_only_stack_top) {
+							has_empty_stack_entry = true;
+							break;
+						}
+					}
+				}
+				if (has_empty_stack_entry) break;
+			}
+			if (has_empty_stack_entry) break;
+		}
+		if (i == initial_state) {
+			// Начальное состояние является финальным - не нужна очистка
+			info.needs_stack_cleanup = false;
+		}
+		else if (has_empty_stack_entry) {
+			// Случай 1: Переход по пустому стеку - не нужна очистка
+			info.needs_stack_cleanup = false;
+		} else {
+			// Проверка 2: Есть ли полная симметричная пара push/pop?
+			// Считаем количество каждого символа, push-нутого из начального состояния
+			std::unordered_map<Symbol, int, Symbol::Hasher> pushed_count;
+			
+			// Собираем символы, push-нутые из начального состояния (после z0)
+			for (const auto& [symbol, transitions] : states[initial_state].transitions) {
+				for (const auto& tr : transitions) {
+					if (tr.pop == Symbol::StackTop) { // push после z0
+						for (const auto& push_sym : tr.push) {
+							if (push_sym != Symbol::StackTop && push_sym != Symbol::Epsilon) {
+								pushed_count[push_sym]++;
+							}
+						}
+					}
+				}
+			}
+			
+			// Считаем количество каждого символа, pop-нутого при входе в финальное
+			std::unordered_map<Symbol, int, Symbol::Hasher> popped_count;
+			
+			for (int from_state = 0; from_state < states.size(); ++from_state) {
+				for (const auto& [symbol, transitions] : states[from_state].transitions) {
+					for (const auto& tr : transitions) {
+						// Учитываем только переходы В финальное из ДРУГИХ состояний (не self-loops)
+						if (tr.to == i && from_state != i) {
+							// Pop только если не z0 и не epsilon
+							if (tr.pop != Symbol::StackTop && tr.pop != Symbol::Epsilon) {
+								popped_count[tr.pop]++;
+							}
+						}
+					}
+				}
+			}
+			
+			// Проверяем ПОЛНУЮ симметрию: pushed_count == popped_count
+			bool has_full_symmetric_pair = (pushed_count == popped_count) && !pushed_count.empty();
+			
+			if (has_full_symmetric_pair) {
+				// Полная симметрия - все push-нутые символы pop-ятся
+				info.needs_stack_cleanup = false;
+			} else {
+				// Нет полной симметрии - нужна очистка стека
+				info.needs_stack_cleanup = true;
+				// Определяем, какие символы могут быть на стеке
+				// (все стековые символы кроме z0)
+				for (const auto& sym : stack_symbols) {
+					if (sym != Symbol::StackTop && sym != Symbol::Epsilon) {
+						info.symbols_to_clean.insert(sym);
+					}
+				}
+			}
+		}
+		
+		final_states_info.push_back(info);
+	}
+	
+	// Шаг 2: добавление cleaner в изначальный pda
+	// Создаем копию оригинального PDA
+	PushdownAutomaton pda_with_cleaners(initial_state, states, language->get_alphabet());
+	
+	// Отображение: старый финальный индекс -> индексы cleaner и нового финального
+	std::unordered_map<int, std::pair<int, int>> final_to_cleaner_and_new_final;
+	
+	// Для каждого финального, которому нужен cleaner:
+	for (const auto& info : final_states_info) {
+		if (info.needs_stack_cleanup && !info.symbols_to_clean.empty()) {
+			// 1. Старое финальное состояние становится НЕфинальным
+			pda_with_cleaners.states[info.state_index].is_terminal = false;
+			
+			// 2. Добавляем состояние-cleaner
+			int cleaner_idx = pda_with_cleaners.states.size();
+			PDAState cleaner_state(cleaner_idx, 
+								   "Cleaner_" + std::to_string(info.state_index), 
+								   false);
+			
+			// Self-loop переходы для очистки каждого символа стека (кроме z0!)
+			for (const auto& sym : info.symbols_to_clean) {
+				// Cleaner -> Cleaner, read eps, pop sym, push eps (удаляем символ)
+				PDATransition cleanup_tr(cleaner_idx, Symbol::Epsilon, sym, {Symbol::Epsilon});
+				cleaner_state.transitions[Symbol::Epsilon].insert(cleanup_tr);
+			}
+			
+			pda_with_cleaners.states.push_back(cleaner_state);
+			
+			// 3. Добавляем новое финальное состояние (будет достигнуто по пустому стеку)
+			int new_final_idx = pda_with_cleaners.states.size();
+			PDAState new_final_state(new_final_idx,
+									 "Final_" + std::to_string(info.state_index),
+									 true); // ЭТО финальное
+			
+			pda_with_cleaners.states.push_back(new_final_state);
+			
+			// 4. Переходы: старое_финальное -> cleaner (eps, eps/eps)
+			PDATransition to_cleaner(cleaner_idx, Symbol::Epsilon, Symbol::Epsilon, {Symbol::Epsilon});
+			pda_with_cleaners.states[info.state_index].transitions[Symbol::Epsilon].insert(to_cleaner);
+			
+			// 5. Переход: cleaner -> новое_финальное (eps, z0/z0) - по пустому стеку
+			PDATransition to_new_final(new_final_idx, Symbol::Epsilon, Symbol::StackTop, {Symbol::StackTop});
+			pda_with_cleaners.states[cleaner_idx].transitions[Symbol::Epsilon].insert(to_new_final);
+			
+			final_to_cleaner_and_new_final[info.state_index] = {cleaner_idx, new_final_idx};
+		}
+	}
+	
+	// Шаг 3: Теперь разворачиваем PDA с добавленными cleaners
+	PushdownAutomaton new_pda = pda_with_cleaners;
+	int final_states_counter = std::count_if(new_pda.states.begin(), new_pda.states.end(),
+											  [](const PDAState& s) { return s.is_terminal; });
+	
+	// Шаг 4: Добавляем новое начальное состояние RevS, если финальных > 1
+	int new_initial_idx = -1;
 	if (final_states_counter > 1) {
-		new_pda.states.push_back({(int)new_pda.size(),
-								  "RevS",
-								  false,
-								  PDAState::Transitions()});
+		new_initial_idx = new_pda.states.size();
+		new_pda.states.push_back({new_initial_idx, "RevS", false, PDAState::Transitions()});
 	}
-
-	// Если финальных состояний > 0, то начинаем reversing
+	
+	// Шаг 5: Меняем роли состояний (финальные -> начальные, начальное -> финальное)
 	if (final_states_counter > 0) {
-		
-		// если > 1 финального состояния, значит было добавлено новое стартовое RevS
-		int final_states_flag = (final_states_counter > 1) ? 1 : 0;
-		int new_initial_idx = (final_states_counter > 1) ? (new_pda.size() - 1) : -1;
-
-		// не трогаем последнее (RevS), если мы его добавили
-		for (int i = 0; i < new_pda.size() - final_states_flag; ++i) {
+		// Находим все финальные состояния в новом PDA (после добавления cleaners)
+		std::vector<int> current_finals;
+		for (int i = 0; i < new_pda.states.size(); ++i) {
 			if (new_pda.states[i].is_terminal) {
-				// ранее финальное теряет свое свойство
+				current_finals.push_back(i);
 				new_pda.states[i].is_terminal = false;
-				if (final_states_counter == 1) {
-					new_pda.initial_state = i;
-					new_initial_idx = i;
-				}
 			}
 		}
-		// начальное состояние становится финальным
-		new_pda.states[initial_state].is_terminal = true;
 		
-		// если же у нас было только 1 финальное, тогда делаем его начальным
-		if (final_states_counter > 1) {
-			new_pda.initial_state = new_initial_idx;
-		}
-
-		// Получаем обратные переходы и новые промежуточные состояния
-		int start_temp_index = new_pda.size();
-		auto [new_transition_matrix, temp_states] = get_reversed_transitions_with_new_states(start_temp_index);
-		
-		// Применяем обратные переходы к существующим состояниям
-		for (int i = 0; i < new_pda.size() - final_states_flag; ++i) {
-			new_pda.states[i].transitions = new_transition_matrix[i];
+		// Если финальное только одно, оно становится начальным
+		if (final_states_counter == 1) {
+			new_initial_idx = current_finals[0];
 		}
 		
-		// Добавляем новые промежуточные состояния
-		for (auto& temp_state : temp_states) {
-			new_pda.states.push_back(temp_state);
-		}
-
-		// Добавляем переходы из RevS (или единственного старого финального состояния) 
-		// для генерации любого содержимого стека (так как мы принимаем не обязательно по пустому стеку)
-		// auto stack_symbols = _get_stack_symbols();
-		// for (const auto& sym : stack_symbols) {
-		// 	// RevS -> RevS, read eps, pop eps, push sym
-		// 	PDATransition loop_tr(new_initial_idx, Symbol::Epsilon, Symbol::Epsilon, {sym});
-		// 	new_pda.states[new_initial_idx].transitions[Symbol::Epsilon].insert(loop_tr);
-		// }
-
-		// Если мы создали RevS, то соединяем его со старыми финальными состояниями
-		if (final_states_counter > 1) {
-			for (int i = 0; i < size(); ++i) {
-				if (states[i].is_terminal) {
-					// RevS -> old final (eps, eps -> eps)
-					PDATransition eps_tr(i, Symbol::Epsilon, Symbol::Epsilon, {Symbol::Epsilon});
-					new_pda.states[new_initial_idx].transitions[Symbol::Epsilon].insert(eps_tr);
-				}
-			}
-		}
-	} else {
-		new_pda.initial_state = initial_state;
+		// Старое начальное становится финальным
+		new_pda.states[pda_with_cleaners.initial_state].is_terminal = true;
+		new_pda.initial_state = new_initial_idx;
 	}
-
+	
+	// Шаг 6: Разворачиваем переходы изначального автомата
+	int start_temp_index = new_pda.states.size();
+	auto [new_transition_matrix, temp_states] = pda_with_cleaners.get_reversed_transitions_with_new_states(start_temp_index);
+	
+	// Применяем обратные переходы ко всем состояниям из pda_with_cleaners
+	for (int i = 0; i < pda_with_cleaners.states.size(); ++i) {
+		new_pda.states[i].transitions = new_transition_matrix[i];
+	}
+	
+	// Добавляем промежуточные состояния
+	for (auto& temp_state : temp_states) {
+		new_pda.states.push_back(temp_state);
+	}
+	
+	// Шаг 7: Соединяем RevS со старыми финальными
+	if (final_states_counter > 1 && new_initial_idx >= 0) {
+		// Соединяем RevS с финальными состояниями ИЗ pda_with_cleaners
+		for (int i = 0; i < pda_with_cleaners.states.size(); ++i) {
+			if (pda_with_cleaners.states[i].is_terminal) {
+				PDATransition eps_tr(i, Symbol::Epsilon, Symbol::Epsilon, {Symbol::Epsilon});
+				new_pda.states[new_initial_idx].transitions[Symbol::Epsilon].insert(eps_tr);
+			}
+		}
+	}
+	
 	// Удаляем недостижимые состояния
 	new_pda = new_pda._remove_unreachable_states(log);
-    std::cerr << "Reversed PDA:\n" << new_pda.to_txt() << std::endl;
+	
 	if (log) {
 		log->set_parameter("oldautomaton", *this);
 		log->set_parameter("result", new_pda);
 	}
+	
 	return new_pda;
 }

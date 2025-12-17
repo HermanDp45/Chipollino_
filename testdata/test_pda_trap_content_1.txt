@@ -1,0 +1,19 @@
+PDA {
+0 initial_state;
+1;
+2 terminal;
+3...
+0 0 a z0/Az0;
+0 0 a A/AA;
+0 1 b A/eps;
+0 3 b z0/z0;
+1 1 b A/eps;
+1 2 b z0/z0;
+2 3 a A/A;
+3 2 b A/A;
+3 3 a z0/z0;
+3 3 a A/A;
+3 3 a B/B;
+3 3 b z0/z0;
+3 3 b B/B
+}

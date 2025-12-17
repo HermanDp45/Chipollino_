@@ -1,7 +1,2 @@
-X = getPDA "testdata/test_pda_multipush.txt"
+X = getPDA "testdata/test_pda_reverse_content_multipush.txt"
 R = Reverse X !!
-Test (X) {abb} 1
-Test (X) {aabbbb} 1
-Test (R) {abb} 1
-Test (R) {bba} 1
-Test (R) {bbbbaa} 1

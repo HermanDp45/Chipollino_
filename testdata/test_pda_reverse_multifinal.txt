@@ -1,4 +1,4 @@
-X = getPDA "testdata/test_reverse_multifinal.txt"
+X = getPDA "testdata/test_pda_reverse_content_multifinal.txt"
 R = Reverse X !!
 Test (X) {aabb} 1
 Test (X) {aaabbb} 1
