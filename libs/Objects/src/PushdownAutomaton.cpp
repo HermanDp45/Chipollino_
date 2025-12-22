@@ -558,6 +558,131 @@ static std::set<std::string> _get_all_stack_symbols(const PushdownAutomaton& pda
 }
 
 /**
+ * @brief Создаёт каноническое отображение символов стека по обходу графа PDA.
+ * 
+ * Символы стека нумеруются в порядке их первого появления при BFS-обходе
+ * от начального состояния. Для каждого состояния переходы обрабатываются
+ * в лексикографическом порядке входных символов.
+ * 
+ * Это обеспечивает согласованную нумерацию для бисимилярных PDA,
+ * независимо от исходных имён символов стека.
+ * 
+ * @param pda автомат PDA.
+ * @return отображение: исходный символ стека -> каноническое имя (S0, S1, S2, ...).
+ */
+static std::unordered_map<std::string, std::string> _get_canonical_stack_mapping(
+	const PushdownAutomaton& pda) {
+	
+	std::unordered_map<std::string, std::string> canonical_map;
+	int next_canonical_id = 0;
+	
+	auto pda_states = pda.get_states();
+	if (pda_states.empty()) {
+		return canonical_map;
+	}
+	
+	// BFS обход от начального состояния
+	std::vector<bool> visited(pda_states.size(), false);
+	std::queue<int> bfs_queue;
+	int initial = pda.get_initial();
+	bfs_queue.push(initial);
+	visited[initial] = true;
+	
+	// Лямбда для присваивания канонического имени символу стека
+	auto assign_canonical = [&](const std::string& sym) {
+		if (canonical_map.find(sym) == canonical_map.end()) {
+			canonical_map[sym] = "S" + std::to_string(next_canonical_id++);
+		}
+	};
+	
+	while (!bfs_queue.empty()) {
+		int current_state = bfs_queue.front();
+		bfs_queue.pop();
+		
+		const auto& state = pda_states[current_state];
+		
+		// Собираем все входные символы для текущего состояния и сортируем их
+		std::vector<Symbol> sorted_input_symbols;
+		for (const auto& [input_symbol, _] : state.transitions) {
+			sorted_input_symbols.push_back(input_symbol);
+		}
+		std::sort(sorted_input_symbols.begin(), sorted_input_symbols.end(),
+			[](const Symbol& a, const Symbol& b) {
+				return std::string(a) < std::string(b);
+			});
+		
+		// Обрабатываем переходы в каноническом порядке входных символов
+		for (const Symbol& input_symbol : sorted_input_symbols) {
+			auto it = state.transitions.find(input_symbol);
+			if (it == state.transitions.end()) continue;
+			
+			const auto& symbol_transitions = it->second;
+			
+			// Для недетерминизма: сортируем переходы по уже назначенным каноническим именам,
+			// затем по целевому состоянию
+			std::vector<PDATransition> sorted_transitions(
+				symbol_transitions.begin(), symbol_transitions.end());
+			
+			std::sort(sorted_transitions.begin(), sorted_transitions.end(),
+				[&canonical_map](const PDATransition& a, const PDATransition& b) {
+					// Сначала сравниваем по pop-символу (если уже есть каноническое имя)
+					std::string pop_a = std::string(a.pop);
+					std::string pop_b = std::string(b.pop);
+					auto it_a = canonical_map.find(pop_a);
+					auto it_b = canonical_map.find(pop_b);
+					
+					// Символы с каноническими именами идут первыми
+					bool has_a = (it_a != canonical_map.end());
+					bool has_b = (it_b != canonical_map.end());
+					if (has_a != has_b) return has_a > has_b;
+					
+					if (has_a && has_b) {
+						if (it_a->second != it_b->second) 
+							return it_a->second < it_b->second;
+					} else {
+						// Оба без канонических имён - сравниваем лексикографически
+						if (pop_a != pop_b) return pop_a < pop_b;
+					}
+					
+					// Затем по целевому состоянию
+					return a.to < b.to;
+				});
+			
+			// Обрабатываем переходы и присваиваем канонические имена
+			for (const auto& tr : sorted_transitions) {
+				// Присваиваем канонические имена pop и push символам
+				assign_canonical(std::string(tr.pop));
+				for (const auto& push_sym : tr.push) {
+					assign_canonical(std::string(push_sym));
+				}
+				
+				// Добавляем целевое состояние в очередь BFS
+				if (!visited[tr.to]) {
+					visited[tr.to] = true;
+					bfs_queue.push(tr.to);
+				}
+			}
+		}
+	}
+	
+	// Обрабатываем недостижимые состояния (на всякий случай)
+	for (const auto& state : pda_states) {
+		if (!visited[state.index]) {
+			for (const auto& [input_symbol, symbol_transitions] : state.transitions) {
+				for (const auto& tr : symbol_transitions) {
+					assign_canonical(std::string(tr.pop));
+					for (const auto& push_sym : tr.push) {
+						assign_canonical(std::string(push_sym));
+					}
+				}
+			}
+		}
+	}
+	
+	return canonical_map;
+}
+
+/**
  * @brief Преобразует PDA в NFA (убирая действия со стеком, оставляя только структуру переходов).
  * Используется для Action Bisimulation.
  * @return NFA, соответствующий структуре переходов PDA.
@@ -600,15 +725,9 @@ FiniteAutomaton PushdownAutomaton::_to_symbolic_nfa(const PushdownAutomaton& pda
 		nfa_states.push_back(fa_state);
 	}
 	
-	// Собираем все символы стека и создаем нормализованное отображение
-	std::set<std::string> stack_symbols_set = _get_all_stack_symbols(pda);
-	
-	// Создаем отображение: символ стека -> нормализованное имя (S0, S1, S2, ...)
-	std::unordered_map<std::string, std::string> normalize_map;
-	int counter = 0;
-	for (const auto& sym : stack_symbols_set) {
-		normalize_map[sym] = "S" + std::to_string(counter++);
-	}
+	// Получаем каноническое отображение символов стека по обходу графа PDA
+	// Это обеспечивает согласованную нумерацию независимо от исходных имён символов
+	std::unordered_map<std::string, std::string> normalize_map = _get_canonical_stack_mapping(pda);
 	
 	// Собираем информацию о промежуточных состояниях и переходах
 	struct MidTransition {
@@ -716,7 +835,7 @@ std::optional<bool> PushdownAutomaton::_bisimilarity_checker(
 		return false;
 	}
 	
-	// ===== ЭТАП 2: SYMBOLIC BISIMULATION =====
+	// ЭТАП 2: SYMBOLIC BISIMULATION
 	// Стратегия: пробуем простую нормализацию, если не работает - перебираем перестановки
 	
 	// Сначала пробуем простой подход с независимой нормализацией
@@ -726,7 +845,7 @@ std::optional<bool> PushdownAutomaton::_bisimilarity_checker(
 	auto [simple_result, _, __] = FiniteAutomaton::bisimilarity_checker(symbolic_nfa1, symbolic_nfa2);
 	if (simple_result) {
 		std::cout << "Simple normalization succeeded\n";
-		return true; // Повезло, простая нормализация сработала!
+		return true;
 	}
 	
 	// Простая нормализация не сработала. 
@@ -741,9 +860,8 @@ std::optional<bool> PushdownAutomaton::_bisimilarity_checker(
 	}
 	
 	// Если алфавит стека слишком большой, не перебираем
-	// Ограничение: 7! = 5040 перестановок - разумный предел для полного перебора
 	if (stack_symbols1.size() > 7) {
-		return std::nullopt; // Консервативный ответ
+		return std::nullopt;
 	}
 	
 	// перебор перестановок
@@ -757,7 +875,6 @@ std::optional<bool> PushdownAutomaton::_bisimilarity_checker(
 	std::sort(syms2.begin(), syms2.end());
 	
 	// std::next_permutation генерирует следующую лексикографическую перестановку
-	// Цикл do-while гарантирует проверку всех |Γ|! перестановок
 	do {
 		// Создание отображение перестановки
 		// permutation[sym_from_pda1] = corresponding_sym_from_pda2
@@ -770,7 +887,6 @@ std::optional<bool> PushdownAutomaton::_bisimilarity_checker(
 		
 		// Применение перестановки к pda2
 		// Создаем новый PDA, где каждый символ стека переименован согласно permutation
-		// Важно: переименовываем ВСЕ вхождения символа (и в pop, и во всех push)
 		std::vector<PDAState> permuted_states;
 		for (const auto& state : pda2.states) {
 			PDAState new_state(state.index, state.identifier, state.is_terminal);
@@ -811,10 +927,8 @@ std::optional<bool> PushdownAutomaton::_bisimilarity_checker(
 		// Эта перестановка не сработала, переходим к следующей
 	} while (std::next_permutation(syms2.begin(), syms2.end()));
 	
-	// Проверили все |Γ|! перестановок - ни одна не дала бисимуляции.
-	// Это означает, что либо:
-	//   1) Автоматы действительно не бисимулярны
-	//   2) Есть более сложная зависимость между символами
+    // 1) Автоматы действительно не бисимулярны
+    // 2) Есть более сложная зависимость между символами
 	// Возвращаем nullopt как консервативный ответч
 	return std::nullopt;
 }
