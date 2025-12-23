@@ -790,22 +790,10 @@ FiniteAutomaton PushdownAutomaton::_to_symbolic_nfa(const PushdownAutomaton& pda
  * Этап 1: Action Bisimulation - проверяем структуру переходов без учета стека.
  * 
  * Этап 2: Symbolic Bisimulation с адаптивной стратегией:
- *   а) Сначала пробуем простую независимую нормализацию (быстро, O(n log n))
- *   б) Если не сработала и |Γ| ≤ 7 - перебираем все перестановки (медленно, O(|Γ|!))
+ *   а) Сначала пробуем простую независимую нормализацию
+ *   б) Если не сработала и |Γ| ≤ 7 - перебираем все перестановки
  *   в) Если |Γ| > 7 - возвращаем консервативный ответ (nullopt)
- * 
- * Обоснование гибридного подхода:
- * - Простая нормализация работает для большинства практических случаев
- *   (когда символы стека именуются согласованно)
- * - Полный перебор гарантирует корректность для небольших алфавитов
- * - Ограничение |Γ| ≤ 7 предотвращает экспоненциальный взрыв (7! = 5040)
- * 
- * Ограничения:
- * - Может дать nullopt для бисимилярных PDA с большим алфавитом стека (>7)
- *   и несогласованными именами символов
- * - Не оптимален при наличии недетерминизма (множество переходов по одному символу)
- * 
- * 
+ *
  * @param pda1 первый PDA.
  * @param pda2 второй PDA.
  * @return optional<bool>:
@@ -821,7 +809,7 @@ std::optional<bool> PushdownAutomaton::_bisimilarity_checker(
 		return false;
 	}
 	
-	// ===== ЭТАП 1: ACTION BISIMULATION =====
+	// ЭТАП 1: ACTION BISIMULATION
 	// Преобразуем PDA в NFA (убираем действия со стеком)
 	FiniteAutomaton action_nfa1 = _to_action_nfa(pda1);
 	FiniteAutomaton action_nfa2 = _to_action_nfa(pda2);
@@ -1522,7 +1510,7 @@ PushdownAutomaton::get_reversed_transitions_with_new_states(int start_temp_index
 				
 				// Если push содержит несколько символов [z0, A, B], то на стеке они будут B, A, z0 (сверху вниз)
 				// В reverse нужно снимать в обратном порядке: B, A, z0
-				// Поэтому итерируемся по push В ОБРАТНОМ ПОРЯДКЕ: push[last], push[last-1], ..., push[0]
+				// Поэтому итерируемся по push в обратном порядке: push[last], push[last-1], ..., push[0]
 				// Создаём цепочку: tr.to --symbol, pop=push[last], push=ε--> temp0 --ε, pop=push[last-1], push=ε--> ... --ε, pop=push[0], push={tr.pop}--> i
 				} else {
 					// Индекс первого временного состояния
@@ -1586,7 +1574,7 @@ PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
 		
 		FinalStateInfo info{i, false, {}};
 		
-		// Проверка 1: Есть ли переходы В это финальное состояние, которые оставляют только z0 на стеке?
+		// Проверка 1: Есть ли переходы в это финальное состояние, которые оставляют только z0 на стеке?
 		bool has_empty_stack_entry = false;
 		
 		// Ищем все переходы, ведущие в это состояние
@@ -1597,7 +1585,7 @@ PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
 						// Переход найден. Проверяем, что он делает со стеком
 						// Стек пустой (только z0), если:
 						// 1) pop = z0 и push = z0 (сохраняем пустой стек)
-						// 2) pop = z0 и push пустой/eps (убираем z0 - некорректно, но тоже пустой)
+						// 2) pop = z0 и push пустой/eps
 						bool pops_stack_top = (tr.pop == Symbol::StackTop);
 						bool pushes_only_stack_top = false;
 						
@@ -1628,10 +1616,10 @@ PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
 			info.needs_stack_cleanup = false;
 		} else {
 			// Проверка 2: Есть ли полная симметричная пара push/pop?
-			// Считаем количество каждого символа, push-нутого из начального состояния
+			// Считаем количество каждого символа push из начального состояния
 			std::unordered_map<Symbol, int, Symbol::Hasher> pushed_count;
 			
-			// Собираем символы, push-нутые из начального состояния (после z0)
+			// Собираем символы push из начального состояния (после z0)
 			for (const auto& [symbol, transitions] : states[initial_state].transitions) {
 				for (const auto& tr : transitions) {
 					if (tr.pop == Symbol::StackTop) { // push после z0
@@ -1644,13 +1632,13 @@ PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
 				}
 			}
 			
-			// Считаем количество каждого символа, pop-нутого при входе в финальное
+			// Считаем количество каждого символа pop при входе в финальное
 			std::unordered_map<Symbol, int, Symbol::Hasher> popped_count;
 			
 			for (int from_state = 0; from_state < states.size(); ++from_state) {
 				for (const auto& [symbol, transitions] : states[from_state].transitions) {
 					for (const auto& tr : transitions) {
-						// Учитываем только переходы В финальное из ДРУГИХ состояний (не self-loops)
+						// Учитываем только переходы в финальное из других состояний (не self-loops)
 						if (tr.to == i && from_state != i) {
 							// Pop только если не z0 и не epsilon
 							if (tr.pop != Symbol::StackTop && tr.pop != Symbol::Epsilon) {
@@ -1702,7 +1690,7 @@ PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
 								   "Cleaner_" + std::to_string(info.state_index), 
 								   false);
 			
-			// Self-loop переходы для очистки каждого символа стека (кроме z0!)
+			// Self-loop переходы для очистки каждого символа стека (кроме z0)
 			for (const auto& sym : info.symbols_to_clean) {
 				// Cleaner -> Cleaner, read eps, pop sym, push eps (удаляем символ)
 				PDATransition cleanup_tr(cleaner_idx, Symbol::Epsilon, sym, {Symbol::Epsilon});
@@ -1711,11 +1699,11 @@ PushdownAutomaton PushdownAutomaton::reverse(iLogTemplate* log) const {
 			
 			pda_with_cleaners.states.push_back(cleaner_state);
 			
-			// 3. Добавляем новое финальное состояние (будет достигнуто по пустому стеку)
+			// 3. Добавляем новое финальное состояние
 			int new_final_idx = pda_with_cleaners.states.size();
 			PDAState new_final_state(new_final_idx,
 									 "Final_" + std::to_string(info.state_index),
-									 true); // ЭТО финальное
+									 true);
 			
 			pda_with_cleaners.states.push_back(new_final_state);
 			
